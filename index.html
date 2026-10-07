@@ -547,15 +547,15 @@ footer .wrap { display: flex; justify-content: space-between; flex-wrap: wrap; g
   </div>
 
   <div class="viz-card mt-m">
-    <h3>並進の変位量（追加5例）：回転と比べてごくわずか</h3>
-    <p class="desc">並進運動は追加5例（K〜O）のデータで評価しました。挙上中に、ステムがグレノスフィアに対して各方向へ動いた幅（最大−最小、mm）を示しています。点が各症例、縦線が平均値です。同じ5例で外旋が平均38°以上変化するのに対し、並進はどの方向も2 mm以内にとどまりました。</p>
-    <div class="legend"><span><i class="dot" style="background:var(--series-1)"></i>選択中の症例</span><span><i class="dot" style="background:var(--muted)"></i>その他の症例</span><span><i style="background:var(--ink)"></i>平均</span></div>
-    <svg class="chart" id="c-trans" viewBox="0 0 1040 330" role="img" aria-label="並進方向ごとの変位量（15症例）"></svg>
+    <h3>正規化した並進運動（追加5例の平均）：挙上中もほぼ一定</h3>
+    <p class="desc">並進の絶対値は、骨や人工関節の大きさによって症例ごとに違うのが当然です。そこで症例ごとに<b>自分の平均位置からの差</b>に正規化し、挙上サイクル（0〜100%）にそろえて5例を平均しました。平均線が0付近で平らなほど、挙上中にステムとグレノスフィアの相対位置が保たれていることを意味します。</p>
+    <div class="legend"><span><i style="background:var(--series-1)"></i>5例の平均</span><span><i style="background:var(--series-1);opacity:.25;height:9px"></i>平均±1SD</span><span><i style="background:var(--other)"></i>各症例</span><span><i style="background:var(--series-2)"></i>選択中の症例</span></div>
+    <svg class="chart" id="c-trans" viewBox="0 0 1040 290" role="img" aria-label="正規化した並進運動の5例平均（内外側・前後・上下）"></svg>
   </div>
 
   <div class="viz-card mt-m">
     <h3 id="multi-title">選択中の症例の6自由度</h3>
-    <p class="desc">横軸は挙上サイクル（開始 0% → 最大挙上 100%、外転角で正規化）です。回転は角度そのもの、並進は開始時からの変化量で表示しています（並進は追加5例のみ）。全症例で軸の範囲を揃えているため、症例を切り替えて比較できます。</p>
+    <p class="desc">横軸は挙上サイクル（開始 0% → 最大挙上 100%、外転角で正規化）です。回転は角度そのもの、並進はその症例の平均位置からの差（正規化）で表示しています（並進は追加5例のみ）。全症例で軸の範囲を揃えているため、症例を切り替えて比較できます。</p>
     <div class="multi" id="c-multi"></div>
   </div>
 
@@ -564,7 +564,7 @@ footer .wrap { display: flex; justify-content: space-between; flex-wrap: wrap; g
     <div class="table-wrap">
       <table class="data" id="tbl">
         <thead><tr>
-          <th>症例</th><th>群</th><th>フレーム</th><th>外転 開始→最大 (°)</th><th>外旋変化 (°)</th><th>連動率 (°/°)</th><th>相関 r</th><th>屈曲伸展の変動幅 (°)</th><th>内外側 (mm)</th><th>前後 (mm)</th><th>上下 (mm)</th>
+          <th>症例</th><th>群</th><th>フレーム</th><th>外転 開始→最大 (°)</th><th>外旋変化 (°)</th><th>連動率 (°/°)</th><th>相関 r</th><th>屈曲伸展の変動幅 (°)</th><th>内外側 変動幅 (mm)</th><th>前後 変動幅 (mm)</th><th>上下 変動幅 (mm)</th>
         </tr></thead>
         <tbody></tbody>
         <tfoot></tfoot>
@@ -755,6 +755,24 @@ const DATA = {"subjects":[{"id":"A","cohort":"初期10例","n":7,"abd":[6.83,13.
   const TS = S.filter(s => s.cohort === '追加5例'), TSUM = DATA.summary.add5;
   const hasTrans = s => s.cohort === '追加5例';
   let sel = 'L';
+
+  // 並進の正規化：症例ごとに「自分の平均位置からの差」に変換し（骨・人工関節の大きさの違いを相殺）、
+  // 挙上サイクル 0〜100% の共通グリッドに補間して症例間の平均±SDを求める
+  const GRID = Array.from({ length: 11 }, (_, i) => i * 10);
+  const avg = a => a.reduce((p, c) => p + c, 0) / a.length;
+  const sd = a => { const m = avg(a); return Math.sqrt(a.reduce((p, c) => p + (c - m) ** 2, 0) / (a.length - 1)); };
+  const devOf = (s, k) => { const m = avg(s[k]); return s[k].map(v => v - m); };
+  const interp = (xs, ys, x) => {
+    for (let i = 0; i < xs.length - 1; i++) if (x >= xs[i] && x <= xs[i + 1]) { const t = xs[i + 1] === xs[i] ? 0 : (x - xs[i]) / (xs[i + 1] - xs[i]); return ys[i] + t * (ys[i + 1] - ys[i]); }
+    return x <= xs[0] ? ys[0] : ys[ys.length - 1];
+  };
+  const NORM = {};
+  ['ml', 'ap', 'si'].forEach(k => {
+    const curves = TS.map(s => ({ id: s.id, raw: s.cycle.map((c, i) => [c, devOf(s, k)[i]]), grid: GRID.map(g => interp(s.cycle, devOf(s, k), g)) }));
+    const mean = GRID.map((_, gi) => avg(curves.map(c => c.grid[gi])));
+    const sds = GRID.map((_, gi) => sd(curves.map(c => c.grid[gi])));
+    NORM[k] = { curves, mean, sds, meanRange: Math.max(...mean) - Math.min(...mean), maxAbsMean: Math.max(...mean.map(Math.abs)), maxSd: Math.max(...sds) };
+  });
   const NS = 'http://www.w3.org/2000/svg';
   const f1 = v => (Math.round(v * 10) / 10).toFixed(1);
   const f2 = v => (Math.round(v * 100) / 100).toFixed(2);
@@ -800,7 +818,7 @@ const DATA = {"subjects":[{"id":"A","cohort":"初期10例","n":7,"abd":[6.83,13.
   document.getElementById('f2').textContent =
     `連動率は${f2(SUM.slope.min)}〜${f2(SUM.slope.max)}°/°と、約${Math.round(SUM.slope.max / SUM.slope.min)}倍の開きがありました。外転とほぼ同じ角度だけ外旋する症例（0.9°/°以上：${hi.map(s => s.id).join('・')}）がある一方、外旋がほとんど増えない症例（0.45°/°未満：${lo.map(s => s.id).join('・')}）もあります。さらに${weak.map(s => s.id).join('・')}は相関が r < 0.7 と弱く、挙上の途中で回旋の向きが変わるパターンでした。こうした違いを、患者さんごとのリハビリ方針を考える手がかりにできないかを検討しています。`;
   document.getElementById('f3').textContent =
-    `追加5例（K〜O）で並進運動を評価しました。ステムがグレノスフィアに対して動いた幅は、内外側${f1(TSUM.mlExc.mean)}・前後${f1(TSUM.apExc.mean)}・上下${f1(TSUM.siExc.mean)} mm（平均）で、最大でも${f1(TSUM.transMax.max)} mmでした。同じ5例で外旋が平均${f1(TSUM.erChange.mean)}°変化しているのと比べるとごくわずかで、球面同士が適合したまま回転していることが数値で確認できました。並進方向まで安定して推定できたことは、2段階アプローチの有効性を示す結果でもあります。`;
+    `並進は骨や人工関節の大きさによって絶対値が症例ごとに異なるため、症例ごとに自分の平均位置からの差に正規化してから、追加5例（K〜O）で平均しました。挙上の全区間で、平均線は内外側${f2(NORM.ml.meanRange)}・前後${f2(NORM.ap.meanRange)}・上下${f2(NORM.si.meanRange)} mmの幅にとどまり、ほぼ一定でした（症例間のばらつきも最大でSD ${f2(Math.max(NORM.ml.maxSd, NORM.ap.maxSd, NORM.si.maxSd))} mm）。同じ5例で外旋が平均${f1(TSUM.erChange.mean)}°変化しているのに対し、ステムとグレノスフィアの相対位置は挙上中も保たれており、球面同士が適合したまま回転していることを示しています。並進方向まで安定して推定できたことは、2段階アプローチの有効性を示す結果でもあります。`;
   document.getElementById('f4').textContent =
     `屈曲／伸展の変動幅は平均${f1(SUM.flexRange.mean)}°（${f1(SUM.flexRange.min)}〜${f1(SUM.flexRange.max)}°）でした。多くの症例は肩甲骨面に沿って挙上できていますが、20°を超えて腕の前後の向きが変わる症例もありました。外転と外旋の連動と組み合わせて評価することで、挙上の「質」の違いを表せる可能性があります。`;
 
@@ -887,36 +905,48 @@ const DATA = {"subjects":[{"id":"A","cohort":"初期10例","n":7,"abd":[6.83,13.
     });
   }
 
-  // ---------- chart 3: translation strip ----------
+  // ---------- chart 3: 正規化した並進（5例平均±SD） ----------
   function drawTrans() {
     const svg = document.getElementById('c-trans'); svg.innerHTML = '';
-    const W = 1040, H = 330, m = { l: 92, r: 24, t: 18, b: 40 };
-    const axes = [['mlExc', '内外側'], ['apExc', '前後'], ['siExc', '上下']];
-    const rowH = (H - m.t - m.b) / axes.length;
-    const x = scale(0, 3, m.l, W - m.r);
-    ticks(0, 3, 0.5).forEach(v => {
-      el('line', { x1: x(v), x2: x(v), y1: m.t, y2: H - m.b, class: v === 0 ? 'base' : 'grid' }, svg);
-      txt(svg, x(v), H - m.b + 18, v.toFixed(1), { 'text-anchor': 'middle', class: 'tick' });
-    });
-    txt(svg, (m.l + W - m.r) / 2, H - 4, '挙上中の変位量 (mm)', { 'text-anchor': 'middle', class: 'ttl' });
-    axes.forEach(([k, label], ai) => {
-      const cy = m.t + rowH * (ai + 0.5);
-      txt(svg, m.l - 14, cy + 4, label, { 'text-anchor': 'end', style: 'fill:var(--ink-2);font-size:13px' });
-      const mean = TSUM[k].mean;
-      el('line', { x1: x(mean), x2: x(mean), y1: cy - rowH * 0.3, y2: cy + rowH * 0.42, stroke: 'var(--ink)', 'stroke-width': 2, 'stroke-linecap': 'round' }, svg);
-      const ordered = TS.filter(s => s.id !== sel).concat(TS.filter(s => s.id === sel));
-      ordered.forEach(s => {
-        const idx = TS.indexOf(s), isSel = s.id === sel;
-        const jitter = (idx - 2) * rowH * 0.12 + rowH * 0.06;
-        const g = el('g', { style: 'cursor:pointer' }, svg);
-        el('circle', { cx: x(s[k]), cy: cy + jitter, r: isSel ? 6.5 : 5.5, fill: isSel ? 'var(--series-1)' : 'var(--muted)', stroke: 'var(--surface)', 'stroke-width': 2 }, g);
-        txt(g, x(s[k]) + 10, cy + jitter + 4, s.id, { class: 'tick', style: isSel ? 'fill:var(--ink);font-weight:700' : '' });
-        g.addEventListener('mousemove', ev => showTip(`<b>症例 ${s.id}</b>　${label}` + row('変位量', f2(s[k]) + ' mm') + row('追加5例の平均', f2(mean) + ' mm'), ev));
-        g.addEventListener('mouseleave', hideTip);
-        g.addEventListener('click', () => select(s.id));
+    const W = 1040, H = 290, gap = 36, pw = (W - 40 - gap * 2) / 3, m = { l: 40, t: 34, b: 44 };
+    const axes = [['ml', '内外側', '外側 + / 内側 −'], ['ap', '前後', '後方 + / 前方 −'], ['si', '上下', '上方 + / 下方 −']];
+    const y = scale(-3, 3, H - m.b, m.t);
+    const path = pts => 'M' + pts.map(p => p[0].toFixed(1) + ',' + p[1].toFixed(1)).join('L');
+    axes.forEach(([k, label, dir], ai) => {
+      const N = NORM[k], x0 = m.l + ai * (pw + gap), x = scale(0, 100, x0, x0 + pw);
+      txt(svg, x0, 14, label, { style: 'fill:var(--ink);font-size:13px;font-weight:500' });
+      txt(svg, x0 + pw, 14, dir, { 'text-anchor': 'end', style: 'fill:var(--muted);font-size:10.5px' });
+      ticks(-3, 3, 1).forEach(v => {
+        el('line', { x1: x0, x2: x0 + pw, y1: y(v), y2: y(v), class: v === 0 ? 'base' : 'grid' }, svg);
+        if (ai === 0) txt(svg, x0 - 8, y(v) + 4, v > 0 ? '+' + v : v, { 'text-anchor': 'end', class: 'tick' });
       });
-      txt(svg, x(mean), cy - rowH * 0.38, `平均 ${f1(mean)} mm`, { 'text-anchor': 'middle', style: 'fill:var(--ink);font-size:11.5px;font-weight:500;paint-order:stroke;stroke:var(--surface);stroke-width:4px' });
+      [0, 50, 100].forEach(v => txt(svg, x(v), H - m.b + 16, v + '%', { 'text-anchor': 'middle', class: 'tick' }));
+      // ±1SD 帯
+      const up = GRID.map((g, i) => [x(g), y(N.mean[i] + N.sds[i])]), dn = GRID.map((g, i) => [x(g), y(N.mean[i] - N.sds[i])]).reverse();
+      el('path', { d: path(up) + 'L' + dn.map(p => p[0].toFixed(1) + ',' + p[1].toFixed(1)).join('L') + 'Z', fill: 'var(--series-1)', 'fill-opacity': 0.14, stroke: 'none' }, svg);
+      // 各症例（正規化後）
+      const ordered = N.curves.filter(c => c.id !== sel).concat(N.curves.filter(c => c.id === sel));
+      ordered.forEach(c => {
+        const isSel = c.id === sel;
+        el('path', { d: path(c.raw.map(([cx, v]) => [x(cx), y(Math.max(-3, Math.min(3, v)))])), fill: 'none', stroke: isSel ? 'var(--series-2)' : 'var(--other)', 'stroke-width': isSel ? 2 : 1.2, 'stroke-linejoin': 'round' }, svg);
+      });
+      // 5例の平均
+      el('path', { d: path(GRID.map((g, i) => [x(g), y(N.mean[i])])), fill: 'none', stroke: 'var(--series-1)', 'stroke-width': 2.5, 'stroke-linejoin': 'round' }, svg);
+      GRID.forEach((g, i) => el('circle', { cx: x(g), cy: y(N.mean[i]), r: 3, fill: 'var(--series-1)', stroke: 'var(--surface)', 'stroke-width': 1.5 }, svg));
+      txt(svg, x0 + pw, m.t + 12, `平均線の変動幅 ${f2(N.meanRange)} mm`, { 'text-anchor': 'end', style: 'fill:var(--ink);font-size:11.5px;font-weight:500;paint-order:stroke;stroke:var(--surface);stroke-width:4px' });
+      // ホバー：挙上サイクル上の平均±SD
+      const guide = el('line', { y1: m.t, y2: H - m.b, stroke: 'var(--ink-2)', 'stroke-width': 1, opacity: 0 }, svg);
+      const hit = el('rect', { x: x0, y: m.t, width: pw, height: H - m.t - m.b, fill: 'transparent' }, svg);
+      hit.addEventListener('mousemove', ev => {
+        const pt = svg.createSVGPoint(); pt.x = ev.clientX; pt.y = ev.clientY;
+        const lx = pt.matrixTransform(svg.getScreenCTM().inverse()).x;
+        const gi = Math.max(0, Math.min(GRID.length - 1, Math.round((lx - x0) / pw * 10)));
+        guide.setAttribute('x1', x(GRID[gi])); guide.setAttribute('x2', x(GRID[gi])); guide.setAttribute('opacity', 0.5);
+        showTip(`<b>${label}</b>　挙上 ${GRID[gi]}%` + row('5例の平均', (N.mean[gi] >= 0 ? '+' : '') + f2(N.mean[gi]) + ' mm') + row('SD', f2(N.sds[gi]) + ' mm') + N.curves.map(c => row('症例 ' + c.id, (c.grid[gi] >= 0 ? '+' : '') + f2(c.grid[gi]) + ' mm')).join(''), ev);
+      });
+      hit.addEventListener('mouseleave', () => { guide.setAttribute('opacity', 0); hideTip(); });
     });
+    txt(svg, W / 2, H - 6, '挙上サイクル (%)　／　縦軸：各症例の平均位置からの差 (mm)', { 'text-anchor': 'middle', class: 'ttl' });
   }
 
   // ---------- chart 4: 6DOF small multiples ----------
@@ -924,9 +954,9 @@ const DATA = {"subjects":[{"id":"A","cohort":"初期10例","n":7,"abd":[6.83,13.
     { k: 'er', t: '内旋 / 外旋', pos: '外旋 +', neg: '内旋 −', d: [-60, 70], step: 20, u: '°', rel: false },
     { k: 'ext', t: '屈曲 / 伸展', pos: '伸展 +', neg: '屈曲 −', d: [-30, 20], step: 10, u: '°', rel: false },
     { k: 'abd', t: '外転', pos: '外転 +', neg: '', d: [0, 85], step: 20, u: '°', rel: false },
-    { k: 'ml', t: '内側 / 外側（変化量）', pos: '外側 +', neg: '内側 −', d: [-5, 5], step: 2.5, u: 'mm', rel: true },
-    { k: 'ap', t: '前方 / 後方（変化量）', pos: '後方 +', neg: '前方 −', d: [-5, 5], step: 2.5, u: 'mm', rel: true },
-    { k: 'si', t: '下方 / 上方（変化量）', pos: '上方 +', neg: '下方 −', d: [-5, 5], step: 2.5, u: 'mm', rel: true },
+    { k: 'ml', t: '内側 / 外側（平均位置からの差）', pos: '外側 +', neg: '内側 −', d: [-5, 5], step: 2.5, u: 'mm', rel: true },
+    { k: 'ap', t: '前方 / 後方（平均位置からの差）', pos: '後方 +', neg: '前方 −', d: [-5, 5], step: 2.5, u: 'mm', rel: true },
+    { k: 'si', t: '下方 / 上方（平均位置からの差）', pos: '上方 +', neg: '下方 −', d: [-5, 5], step: 2.5, u: 'mm', rel: true },
   ];
   function drawMulti() {
     const host = document.getElementById('c-multi'); host.innerHTML = '';
@@ -949,13 +979,13 @@ const DATA = {"subjects":[{"id":"A","cohort":"初期10例","n":7,"abd":[6.83,13.
         txt(svg, (m.l + W - m.r) / 2, (m.t + H - m.b) / 2 + 4, '並進は追加5例（K〜O）で評価', { 'text-anchor': 'middle', style: 'fill:var(--ink-2);font-size:12px' });
         return;
       }
-      const vals = s[P.k].map(v => P.rel ? v - s[P.k][0] : v);
+      const vals = P.rel ? devOf(s, P.k) : s[P.k];
       const p = s.cycle.map((c, i) => [x(c), y(Math.max(P.d[0], Math.min(P.d[1], vals[i])))]);
       el('path', { d: 'M' + p.map(q => q[0].toFixed(1) + ',' + q[1].toFixed(1)).join('L'), fill: 'none', stroke: 'var(--series-1)', 'stroke-width': 2, 'stroke-linejoin': 'round' }, svg);
       p.forEach((q, i) => {
         el('circle', { cx: q[0], cy: q[1], r: 3.5, fill: 'var(--series-1)', stroke: 'var(--surface)', 'stroke-width': 1.5 }, svg);
         const h = el('circle', { cx: q[0], cy: q[1], r: 11, fill: 'transparent' }, svg);
-        h.addEventListener('mousemove', ev => showTip(`<b>${P.t}</b>` + row('挙上サイクル', f1(s.cycle[i]) + '%') + row(P.rel ? '開始時からの変化' : '角度', (P.u === 'mm' ? f2(vals[i]) : f1(vals[i])) + ' ' + P.u), ev));
+        h.addEventListener('mousemove', ev => showTip(`<b>${P.t}</b>` + row('挙上サイクル', f1(s.cycle[i]) + '%') + row(P.rel ? '平均位置からの差' : '角度', (P.u === 'mm' ? f2(vals[i]) : f1(vals[i])) + ' ' + P.u), ev));
         h.addEventListener('mouseleave', hideTip);
       });
     });
